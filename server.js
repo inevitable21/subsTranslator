@@ -1,4 +1,6 @@
 'use strict';
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const config = require('./config');
 const { buildManifest } = require('./manifest');
@@ -8,6 +10,15 @@ const translate = require('./translate');
 const cache = require('./cache');
 const rtl = require('./rtl');
 const display = require('./display');
+
+function logRequest(cfg, kind, captured) {
+  if (!cfg.logRequests) return;
+  try {
+    fs.mkdirSync(cfg.dataDir, { recursive: true });
+    fs.appendFileSync(path.join(cfg.dataDir, 'requests.log'),
+      `${new Date().toISOString()} ${kind} ${captured}\n`);
+  } catch { /* logging must never break a request */ }
+}
 
 function cors(req, res, next) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -31,6 +42,7 @@ function createApp(deps = {}) {
   app.get('/manifest.json', (req, res) => res.json(buildManifest()));
 
   app.get(/^\/subtitles\/(.+)\.json$/, (req, res) => {
+    logRequest(cfg, 'subtitles', req.params[0]);
     const segs = req.params[0].split('/');
     const type = segs[0];
     const id = segs[1];
