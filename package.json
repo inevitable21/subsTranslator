@@ -1,0 +1,16 @@
+{
+  "name": "substranslator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Stremio addon that auto-translates subtitles to Hebrew",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "chardet": "^2.0.0",
+    "iconv-lite": "^0.6.3"
+  }
+}
