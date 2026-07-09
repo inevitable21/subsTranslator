@@ -59,6 +59,21 @@ test('GET /translate translates source, sets content-type, and caches', async ()
   assert.strictEqual(sourceCalls, 1); // second request served from cache
 });
 
+test('GET /translate does NOT cache when translation reports failures', async () => {
+  const store = {};
+  const app = createApp({
+    getSource: async () => ({ bytes: Buffer.from('1\n00:00:01,000 --> 00:00:02,000\nHola', 'utf8'), lang: 'spa' }),
+    translateCues: async (cues, opts) => {
+      if (opts && opts.stats) { opts.stats.totalChunks = 1; opts.stats.failedChunks = 1; }
+      return cues; // translation failed -> original kept
+    },
+    cache: { get: () => null, put: (k, v) => { store[k] = v; } },
+  });
+  const r = await req(app, '/translate/movie/tt555.srt');
+  assert.strictEqual(r.status, 200); // still served (best effort)
+  assert.strictEqual(Object.keys(store).length, 0); // but nothing cached
+});
+
 test('GET /translate returns empty body when no source found', async () => {
   const app = createApp({
     getSource: async () => null,

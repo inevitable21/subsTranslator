@@ -9,9 +9,17 @@ function parseGoogleResponse(json) {
 }
 
 async function translateText(text, targetLang, sl = 'auto', fetchFn = fetch) {
+  // The text goes in the POST body, never the URL. A GET query string is capped
+  // at ~16k chars, and non-Latin scripts (Greek, Russian, Hebrew, ...) URL-encode
+  // to ~5x their length, so a full batch would exceed the limit and return HTTP 400.
   const url = `${GOOGLE_URL}?client=gtx&sl=${encodeURIComponent(sl)}`
-    + `&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(text)}`;
-  const res = await fetchFn(url);
+    + `&tl=${encodeURIComponent(targetLang)}&dt=t`;
+  const body = new URLSearchParams({ q: text }).toString();
+  const res = await fetchFn(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+    body,
+  });
   if (!res.ok) throw new Error(`translate HTTP ${res.status}`);
   return parseGoogleResponse(await res.json());
 }
@@ -46,7 +54,7 @@ function flatten(text) {
   return text.replace(/\s*\n\s*/g, ' ').trim();
 }
 
-async function translateChunk(cues, targetLang, translateFn) {
+async function translateChunk(cues, targetLang, translateFn, stats) {
   const texts = cues.map(c => flatten(c.text));
   try {
     const translated = await translateFn(texts.join('\n'), targetLang);
@@ -57,6 +65,7 @@ async function translateChunk(cues, targetLang, translateFn) {
     const perCue = await Promise.all(texts.map(t => translateFn(t, targetLang)));
     return cues.map((c, i) => ({ ...c, text: perCue[i].trim() }));
   } catch (e) {
+    if (stats) stats.failedChunks++;
     return cues; // keep original text on failure
   }
 }
@@ -66,10 +75,12 @@ async function translateCues(cues, opts = {}) {
   const batchSize = opts.batchSize || config.batchSize;
   const concurrency = opts.concurrency || config.concurrency;
   const translateFn = opts.translateFn || ((t, tl) => retry(() => translateText(t, tl)));
+  const stats = opts.stats;
   const chunks = [];
   for (let i = 0; i < cues.length; i += batchSize) chunks.push(cues.slice(i, i + batchSize));
+  if (stats) { stats.totalChunks = chunks.length; stats.failedChunks = 0; }
   const out = await mapWithConcurrency(chunks, concurrency,
-    (chunk) => translateChunk(chunk, targetLang, translateFn));
+    (chunk) => translateChunk(chunk, targetLang, translateFn, stats));
   return out.flat();
 }
 

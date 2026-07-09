@@ -53,9 +53,12 @@ function createApp(deps = {}) {
       const source = await getSource(type, id, extra);
       if (!source) return res.send('');
       const cues = srtImpl.parse(source.bytes);
-      const translated = await translateCues(cues, { targetLang: cfg.targetLangGoogle });
+      const stats = {};
+      const translated = await translateCues(cues, { targetLang: cfg.targetLangGoogle, stats });
       const out = srtImpl.serialize(translated);
-      cacheImpl.put(key, out);
+      // Only cache a fully-translated result. If any chunk failed (e.g. a transient
+      // rate-limit), serve best-effort but don't poison the cache with untranslated text.
+      if (!stats.failedChunks) cacheImpl.put(key, out);
       return res.send(out);
     } catch (e) {
       console.error('translate error:', e);
