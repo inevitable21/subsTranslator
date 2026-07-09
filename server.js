@@ -7,6 +7,7 @@ const sources = require('./sources');
 const translate = require('./translate');
 const cache = require('./cache');
 const rtl = require('./rtl');
+const display = require('./display');
 
 function cors(req, res, next) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -56,7 +57,8 @@ function createApp(deps = {}) {
       const cues = srtImpl.parse(source.bytes);
       const stats = {};
       const translated = await translateCues(cues, { targetLang: cfg.targetLangGoogle, stats });
-      const finalCues = cfg.targetIsRtl ? rtl.markCuesRtl(translated) : translated;
+      const formatted = display.formatCues(translated);
+      const finalCues = cfg.targetIsRtl ? rtl.markCuesRtl(formatted) : formatted;
       const out = srtImpl.serialize(finalCues);
       // Only cache a fully-translated result. If any chunk failed (e.g. a transient
       // rate-limit), serve best-effort but don't poison the cache with untranslated text.

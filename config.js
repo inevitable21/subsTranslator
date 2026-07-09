@@ -13,7 +13,7 @@ module.exports = {
   targetLangLabel: 'heb',        // Stremio ISO 639-2 label
   targetLangGoogle: 'he',        // Google Translate target code
   targetIsRtl: true,             // Hebrew is right-to-left; mark served lines RTL
-  cacheVersion: 'v2',            // bump to invalidate cached output when format changes
+  cacheVersion: 'v3',            // bump to invalidate cached output when format changes
   sourcePreference: ['eng', 'en', 'english'],
   dataDir,
   cacheDir: path.join(dataDir, 'cache'),
