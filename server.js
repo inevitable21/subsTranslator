@@ -105,6 +105,38 @@ function createApp(deps = {}) {
     }
   });
 
+  app.get(/^\/translate-embedded\/(.+)\.srt$/, async (req, res) => {
+    const segs = req.params[0].split('/');
+    const type = segs[0];
+    const id = segs[1];
+    const extra = segs.slice(2).join('/') || '';
+    const { videoSize, videoHash, filename } = embeddedImpl.parseExtra(extra);
+    const key = `${cfg.cacheVersion || 'v1'}:emb:${videoHash || 'nohash'}:${type}:${id}`;
+    res.setHeader('Content-Type', 'application/x-subrip; charset=utf-8');
+
+    const cached = cacheImpl.get(key);
+    if (cached != null) return res.send(cached);
+
+    try {
+      const source = await embeddedImpl.getEmbeddedSubtitle({ videoSize, filename });
+      if (source && source.bytes && source.bytes.length) {
+        const stats = {};
+        const out = await buildTranslatedSrt(source, stats);
+        if (!stats.failedChunks) cacheImpl.put(key, out);
+        return res.send(out);
+      }
+      // Embedded unavailable → fall back to external translation.
+      // Best-effort; do NOT write the embedded cache key so replay retries embedded.
+      const ext = await getSource(type, id, extra || null);
+      if (!ext) return res.send('');
+      const out = await buildTranslatedSrt(ext, {});
+      return res.send(out);
+    } catch (e) {
+      console.error('translate-embedded error:', e);
+      return res.send('');
+    }
+  });
+
   return app;
 }
 

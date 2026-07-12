@@ -132,3 +132,78 @@ test('GET /subtitles skips embedded detection when videoSize absent', async () =
   assert.strictEqual(body.subtitles.length, 1);
   assert.strictEqual(detectCalled, false);
 });
+
+test('GET /translate-embedded extracts, translates, caches under emb key', async () => {
+  const store = {};
+  const app = createApp({
+    embedded: {
+      parseExtra: () => ({ videoSize: 9, filename: 'a.mkv', videoHash: 'beef' }),
+      getEmbeddedSubtitle: async () => ({
+        bytes: Buffer.from('1\n00:00:01,000 --> 00:00:02,000\nHello', 'utf8'), lang: 'eng' }),
+    },
+    translateCues: async (cues) => cues.map(c => ({ ...c, text: 'שלום' })),
+    getSource: async () => { throw new Error('external should not be called'); },
+    cache: { get: (k) => (k in store ? store[k] : null), put: (k, v) => { store[k] = v; } },
+  });
+  const r = await req(app, '/translate-embedded/series/tt1:1:2/filename=a.mkv&videoHash=beef.srt');
+  assert.strictEqual(r.status, 200);
+  assert.match(r.text, /שלום/);
+  const keys = Object.keys(store);
+  assert.strictEqual(keys.length, 1);
+  assert.match(keys[0], /:emb:beef:series:tt1:1:2$/);
+});
+
+test('GET /translate-embedded falls back to external and does NOT cache emb key', async () => {
+  const store = {};
+  let externalCalled = false;
+  const app = createApp({
+    embedded: {
+      parseExtra: () => ({ videoSize: 9, filename: 'a.mkv', videoHash: 'beef' }),
+      getEmbeddedSubtitle: async () => null, // embedded failed
+    },
+    getSource: async () => {
+      externalCalled = true;
+      return { bytes: Buffer.from('1\n00:00:01,000 --> 00:00:02,000\nHello', 'utf8'), lang: 'eng' };
+    },
+    translateCues: async (cues) => cues.map(c => ({ ...c, text: 'שלום' })),
+    cache: { get: () => null, put: (k, v) => { store[k] = v; } },
+  });
+  const r = await req(app, '/translate-embedded/series/tt1:1:2/filename=a.mkv&videoHash=beef.srt');
+  assert.strictEqual(r.status, 200);
+  assert.match(r.text, /שלום/);
+  assert.strictEqual(externalCalled, true);
+  assert.strictEqual(Object.keys(store).length, 0); // embedded key NOT written on fallback
+});
+
+test('GET /translate-embedded returns empty when embedded and external both fail', async () => {
+  const app = createApp({
+    embedded: {
+      parseExtra: () => ({ videoSize: 9, filename: 'a.mkv', videoHash: 'beef' }),
+      getEmbeddedSubtitle: async () => null,
+    },
+    getSource: async () => null,
+    cache: { get: () => null, put: () => {} },
+  });
+  const r = await req(app, '/translate-embedded/movie/tt9/filename=a.mkv&videoHash=beef.srt');
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(r.text, '');
+});
+
+test('GET /translate-embedded does NOT cache when translation reports failures', async () => {
+  const store = {};
+  const app = createApp({
+    embedded: {
+      parseExtra: () => ({ videoSize: 9, filename: 'a.mkv', videoHash: 'beef' }),
+      getEmbeddedSubtitle: async () => ({
+        bytes: Buffer.from('1\n00:00:01,000 --> 00:00:02,000\nHi', 'utf8'), lang: 'eng' }),
+    },
+    translateCues: async (cues, opts) => {
+      if (opts && opts.stats) { opts.stats.totalChunks = 1; opts.stats.failedChunks = 1; }
+      return cues;
+    },
+    cache: { get: () => null, put: (k, v) => { store[k] = v; } },
+  });
+  const r = await req(app, '/translate-embedded/movie/tt9/filename=a.mkv&videoHash=beef.srt');
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(Object.keys(store).length, 0);
+});
