@@ -68,20 +68,32 @@ async function probeEnglishSub(mediaUrl, deps = {}) {
 
   let probe;
   try {
-    const url = `${base}/probe/${encodeURIComponent(mediaUrl)}`;
+    const url = `${base}/probe?url=${encodeURIComponent(mediaUrl)}`;
     const res = await fetchWithTimeout(fetchFn, url, timeoutMs);
     if (!res.ok) return null;
     probe = await res.json();
   } catch { return null; }
 
-  const subs = (probe && probe.streams && probe.streams.subtitles) || [];
+  // Stremio server 4.x returns a FLAT streams[] array discriminated by codec_type;
+  // older enginefs builds nested them under streams.subtitles. Support both, and
+  // preserve file order so the position is subtitle-relative for `-map 0:s:<n>`.
+  const streams = probe && probe.streams;
+  let subs;
+  if (Array.isArray(streams)) {
+    subs = streams.filter(s => String(s.codec_type || '').toLowerCase() === 'subtitle');
+  } else if (streams && Array.isArray(streams.subtitles)) {
+    subs = streams.subtitles;
+  } else {
+    return null;
+  }
+
   for (let rel = 0; rel < subs.length; rel++) {
     const s = subs[rel] || {};
-    const codec = String(s.codec || s.codec_name || '').toLowerCase();
+    const codec = String(s.codec_name || s.codec || '').toLowerCase();
     if (!TEXT_SUB_CODECS.has(codec)) continue;
     const tags = s.tags || {};
-    const lang = String(tags.language || s.language || '').toLowerCase();
-    const title = String(tags.title || '');
+    const lang = String(s.lang || tags.language || s.language || '').toLowerCase();
+    const title = String(tags.title || s.title || '');
     if (lang === 'eng' || lang === 'en' || /english/i.test(title)) {
       return { trackIndex: rel, codec };
     }
