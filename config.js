@@ -19,6 +19,9 @@ module.exports = {
   dataDir,
   cacheDir: path.join(dataDir, 'cache'),
   opensubtitlesBase: 'https://opensubtitles-v3.strem.io',
+  streamingServerBase: process.env.SUBSTRANSLATOR_STREAMING_BASE || 'http://127.0.0.1:11470',
+  embeddedLabel: 'Hebrew (from embedded)',
+  embeddedExternalLabel: 'Hebrew (from external)',
   batchSize: 100,
   concurrency: 5,
 };
