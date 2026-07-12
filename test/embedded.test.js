@@ -83,3 +83,40 @@ test('findStream returns null when videoSize missing', async () => {
   assert.strictEqual(r, null);
   assert.strictEqual(called, false); // early-out, no network
 });
+
+test('probeEnglishSub returns subtitle-relative index of english subrip', async () => {
+  const probe = { streams: { subtitles: [
+    { codec: 'hdmv_pgs_subtitle', tags: { language: 'eng' } }, // rel 0, image -> skip
+    { codec: 'subrip', tags: { language: 'eng' } },            // rel 1, match
+  ] } };
+  const fetchFn = mockFetchJson({ '/probe/': probe });
+  const r = await embedded.probeEnglishSub('http://s/H/0', { fetchFn, base: 'http://s' });
+  assert.deepStrictEqual(r, { trackIndex: 1, codec: 'subrip' });
+});
+
+test('probeEnglishSub matches english by title when language tag missing', async () => {
+  const probe = { streams: { subtitles: [
+    { codec: 'ass', tags: { title: 'English (Full)' } },
+  ] } };
+  const fetchFn = mockFetchJson({ '/probe/': probe });
+  const r = await embedded.probeEnglishSub('http://s/H/0', { fetchFn, base: 'http://s' });
+  assert.strictEqual(r.trackIndex, 0);
+});
+
+test('probeEnglishSub returns null when only image tracks', async () => {
+  const probe = { streams: { subtitles: [
+    { codec: 'hdmv_pgs_subtitle', tags: { language: 'eng' } },
+  ] } };
+  const fetchFn = mockFetchJson({ '/probe/': probe });
+  const r = await embedded.probeEnglishSub('http://s/H/0', { fetchFn, base: 'http://s' });
+  assert.strictEqual(r, null);
+});
+
+test('probeEnglishSub returns null when no english track', async () => {
+  const probe = { streams: { subtitles: [
+    { codec: 'subrip', tags: { language: 'spa' } },
+  ] } };
+  const fetchFn = mockFetchJson({ '/probe/': probe });
+  const r = await embedded.probeEnglishSub('http://s/H/0', { fetchFn, base: 'http://s' });
+  assert.strictEqual(r, null);
+});

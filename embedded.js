@@ -1,6 +1,8 @@
 'use strict';
 const config = require('./config');
 
+const TEXT_SUB_CODECS = new Set(['subrip', 'srt', 'ass', 'ssa', 'mov_text', 'text', 'webvtt']);
+
 function parseExtra(extra) {
   const s = String(extra || '');
   const size = (s.match(/(?:^|&)videoSize=(\d+)/) || [])[1];
@@ -58,4 +60,32 @@ async function findStream({ videoSize, filename }, deps = {}) {
   return sizeOnly;
 }
 
-module.exports = { parseExtra, findStream };
+async function probeEnglishSub(mediaUrl, deps = {}) {
+  const fetchFn = deps.fetchFn || fetch;
+  const base = deps.base || config.streamingServerBase;
+  const timeoutMs = deps.probeTimeoutMs || 1500;
+
+  let probe;
+  try {
+    const url = `${base}/probe/${encodeURIComponent(mediaUrl)}`;
+    const res = await fetchWithTimeout(fetchFn, url, timeoutMs);
+    if (!res.ok) return null;
+    probe = await res.json();
+  } catch { return null; }
+
+  const subs = (probe && probe.streams && probe.streams.subtitles) || [];
+  for (let rel = 0; rel < subs.length; rel++) {
+    const s = subs[rel] || {};
+    const codec = String(s.codec || s.codec_name || '').toLowerCase();
+    if (!TEXT_SUB_CODECS.has(codec)) continue;
+    const tags = s.tags || {};
+    const lang = String(tags.language || s.language || '').toLowerCase();
+    const title = String(tags.title || '');
+    if (lang === 'eng' || lang === 'en' || /english/i.test(title)) {
+      return { trackIndex: rel, codec };
+    }
+  }
+  return null;
+}
+
+module.exports = { parseExtra, findStream, probeEnglishSub };
