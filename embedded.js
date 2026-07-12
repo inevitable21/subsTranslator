@@ -122,4 +122,29 @@ function extractSrt({ mediaUrl, trackIndex }, deps = {}) {
   });
 }
 
-module.exports = { parseExtra, findStream, probeEnglishSub, extractSrt };
+async function detectEmbeddedEnglish({ videoSize, filename }, deps = {}) {
+  const find = deps.findStream || findStream;
+  const probe = deps.probeEnglishSub || probeEnglishSub;
+  const stream = await find({ videoSize, filename }, deps);
+  if (!stream) return null;
+  const sub = await probe(stream.mediaUrl, deps);
+  if (!sub) return null;
+  return { mediaUrl: stream.mediaUrl, trackIndex: sub.trackIndex, codec: sub.codec };
+}
+
+async function getEmbeddedSubtitle({ videoSize, filename }, deps = {}) {
+  const extract = deps.extractSrt || extractSrt;
+  const detected = await detectEmbeddedEnglish({ videoSize, filename }, deps);
+  if (!detected) return null;
+  try {
+    const bytes = await extract(
+      { mediaUrl: detected.mediaUrl, trackIndex: detected.trackIndex }, deps);
+    if (!bytes || bytes.length === 0) return null;
+    return { bytes, lang: 'eng' };
+  } catch { return null; }
+}
+
+module.exports = {
+  parseExtra, findStream, probeEnglishSub, extractSrt,
+  detectEmbeddedEnglish, getEmbeddedSubtitle,
+};

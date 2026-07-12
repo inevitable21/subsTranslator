@@ -185,3 +185,53 @@ test('extractSrt rejects on non-zero exit even with non-empty stdout', async () 
     /exit=3/
   );
 });
+
+test('detectEmbeddedEnglish returns mediaUrl + trackIndex when found', async () => {
+  const r = await embedded.detectEmbeddedEnglish({ videoSize: 10, filename: 'a' }, {
+    findStream: async () => ({ infoHash: 'H', fileIdx: 0, mediaUrl: 'http://s/H/0' }),
+    probeEnglishSub: async () => ({ trackIndex: 1, codec: 'subrip' }),
+  });
+  assert.deepStrictEqual(r, { mediaUrl: 'http://s/H/0', trackIndex: 1, codec: 'subrip' });
+});
+
+test('detectEmbeddedEnglish returns null when stream not found', async () => {
+  const r = await embedded.detectEmbeddedEnglish({ videoSize: 10, filename: 'a' }, {
+    findStream: async () => null,
+    probeEnglishSub: async () => { throw new Error('should not be called'); },
+  });
+  assert.strictEqual(r, null);
+});
+
+test('detectEmbeddedEnglish returns null when no english track', async () => {
+  const r = await embedded.detectEmbeddedEnglish({ videoSize: 10, filename: 'a' }, {
+    findStream: async () => ({ infoHash: 'H', fileIdx: 0, mediaUrl: 'http://s/H/0' }),
+    probeEnglishSub: async () => null,
+  });
+  assert.strictEqual(r, null);
+});
+
+test('getEmbeddedSubtitle returns bytes on success', async () => {
+  const r = await embedded.getEmbeddedSubtitle({ videoSize: 10, filename: 'a' }, {
+    findStream: async () => ({ infoHash: 'H', fileIdx: 0, mediaUrl: 'http://s/H/0' }),
+    probeEnglishSub: async () => ({ trackIndex: 0, codec: 'subrip' }),
+    extractSrt: async () => Buffer.from('SRT', 'utf8'),
+  });
+  assert.strictEqual(r.lang, 'eng');
+  assert.strictEqual(r.bytes.toString('utf8'), 'SRT');
+});
+
+test('getEmbeddedSubtitle returns null when extraction throws', async () => {
+  const r = await embedded.getEmbeddedSubtitle({ videoSize: 10, filename: 'a' }, {
+    findStream: async () => ({ infoHash: 'H', fileIdx: 0, mediaUrl: 'http://s/H/0' }),
+    probeEnglishSub: async () => ({ trackIndex: 0, codec: 'subrip' }),
+    extractSrt: async () => { throw new Error('ffmpeg failed'); },
+  });
+  assert.strictEqual(r, null);
+});
+
+test('getEmbeddedSubtitle returns null when detection fails', async () => {
+  const r = await embedded.getEmbeddedSubtitle({ videoSize: 10, filename: 'a' }, {
+    findStream: async () => null,
+  });
+  assert.strictEqual(r, null);
+});
