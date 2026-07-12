@@ -1,5 +1,6 @@
 'use strict';
 const config = require('./config');
+const childProcess = require('node:child_process');
 
 const TEXT_SUB_CODECS = new Set(['subrip', 'srt', 'ass', 'ssa', 'mov_text', 'text', 'webvtt']);
 
@@ -88,4 +89,26 @@ async function probeEnglishSub(mediaUrl, deps = {}) {
   return null;
 }
 
-module.exports = { parseExtra, findStream, probeEnglishSub };
+function extractSrt({ mediaUrl, trackIndex }, deps = {}) {
+  const spawnFn = deps.spawnFn || childProcess.spawn;
+  const ffmpegPath = deps.ffmpegPath || require('ffmpeg-static');
+  const args = ['-nostdin', '-i', mediaUrl, '-map', `0:s:${trackIndex}`,
+    '-c:s', 'srt', '-f', 'srt', 'pipe:1'];
+
+  return new Promise((resolve, reject) => {
+    let child;
+    try { child = spawnFn(ffmpegPath, args); }
+    catch (e) { return reject(e); }
+
+    const chunks = [];
+    child.stdout.on('data', d => chunks.push(d));
+    child.on('error', reject);
+    child.on('close', code => {
+      const out = Buffer.concat(chunks);
+      if (code === 0 && out.length > 0) resolve(out);
+      else reject(new Error(`ffmpeg exit=${code} bytes=${out.length}`));
+    });
+  });
+}
+
+module.exports = { parseExtra, findStream, probeEnglishSub, extractSrt };

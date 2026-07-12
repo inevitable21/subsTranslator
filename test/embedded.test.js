@@ -2,6 +2,22 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const embedded = require('../embedded');
+const { PassThrough } = require('node:stream');
+const { EventEmitter } = require('node:events');
+
+function fakeSpawn({ stdout = '', code = 0 } = {}) {
+  return () => {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    setImmediate(() => {
+      if (stdout) child.stdout.write(Buffer.from(stdout, 'utf8'));
+      child.stdout.end();
+      child.emit('close', code);
+    });
+    return child;
+  };
+}
 
 test('parseExtra extracts filename, videoSize, videoHash', () => {
   const r = embedded.parseExtra('filename=Wakfu S01E06.mkv&videoSize=434828263&videoHash=3324c29ac710a548');
@@ -119,4 +135,36 @@ test('probeEnglishSub returns null when no english track', async () => {
   const fetchFn = mockFetchJson({ '/probe/': probe });
   const r = await embedded.probeEnglishSub('http://s/H/0', { fetchFn, base: 'http://s' });
   assert.strictEqual(r, null);
+});
+
+test('extractSrt resolves with stdout buffer on exit 0', async () => {
+  const srtText = '1\n00:00:01,000 --> 00:00:02,000\nHello';
+  const out = await embedded.extractSrt({ mediaUrl: 'http://s/H/0', trackIndex: 1 },
+    { spawnFn: fakeSpawn({ stdout: srtText, code: 0 }), ffmpegPath: 'ffmpeg' });
+  assert.strictEqual(out.toString('utf8'), srtText);
+});
+
+test('extractSrt rejects on non-zero exit', async () => {
+  await assert.rejects(
+    embedded.extractSrt({ mediaUrl: 'http://s/H/0', trackIndex: 0 },
+      { spawnFn: fakeSpawn({ stdout: '', code: 1 }), ffmpegPath: 'ffmpeg' })
+  );
+});
+
+test('extractSrt rejects on empty output', async () => {
+  await assert.rejects(
+    embedded.extractSrt({ mediaUrl: 'http://s/H/0', trackIndex: 0 },
+      { spawnFn: fakeSpawn({ stdout: '', code: 0 }), ffmpegPath: 'ffmpeg' })
+  );
+});
+
+test('extractSrt builds a subtitle-relative -map selector', async () => {
+  let capturedArgs = null;
+  const spawnFn = (bin, args) => {
+    capturedArgs = args;
+    return fakeSpawn({ stdout: 'x', code: 0 })();
+  };
+  await embedded.extractSrt({ mediaUrl: 'http://s/H/0', trackIndex: 2 },
+    { spawnFn, ffmpegPath: 'ffmpeg' });
+  assert.ok(capturedArgs.includes('0:s:2'), 'uses subtitle-relative map index');
 });
