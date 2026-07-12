@@ -101,12 +101,23 @@ function extractSrt({ mediaUrl, trackIndex }, deps = {}) {
     catch (e) { return reject(e); }
 
     const chunks = [];
+    const errChunks = [];
+    let errLen = 0;
+    const ERR_CAP = 4096;
     child.stdout.on('data', d => chunks.push(d));
+    if (child.stderr) {
+      // Drain stderr so a real ffmpeg child can't block on a full pipe;
+      // retain only a bounded amount for diagnostics.
+      child.stderr.on('data', d => {
+        if (errLen < ERR_CAP) { errChunks.push(d); errLen += d.length; }
+      });
+    }
     child.on('error', reject);
     child.on('close', code => {
       const out = Buffer.concat(chunks);
-      if (code === 0 && out.length > 0) resolve(out);
-      else reject(new Error(`ffmpeg exit=${code} bytes=${out.length}`));
+      if (code === 0 && out.length > 0) return resolve(out);
+      const err = Buffer.concat(errChunks).toString('utf8').trim();
+      reject(new Error(`ffmpeg exit=${code} bytes=${out.length}${err ? ` stderr=${err}` : ''}`));
     });
   });
 }

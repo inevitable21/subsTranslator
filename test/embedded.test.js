@@ -5,14 +5,16 @@ const embedded = require('../embedded');
 const { PassThrough } = require('node:stream');
 const { EventEmitter } = require('node:events');
 
-function fakeSpawn({ stdout = '', code = 0 } = {}) {
+function fakeSpawn({ stdout = '', stderr = '', code = 0 } = {}) {
   return () => {
     const child = new EventEmitter();
     child.stdout = new PassThrough();
     child.stderr = new PassThrough();
     setImmediate(() => {
       if (stdout) child.stdout.write(Buffer.from(stdout, 'utf8'));
+      if (stderr) child.stderr.write(Buffer.from(stderr, 'utf8'));
       child.stdout.end();
+      child.stderr.end();
       child.emit('close', code);
     });
     return child;
@@ -167,4 +169,19 @@ test('extractSrt builds a subtitle-relative -map selector', async () => {
   await embedded.extractSrt({ mediaUrl: 'http://s/H/0', trackIndex: 2 },
     { spawnFn, ffmpegPath: 'ffmpeg' });
   assert.ok(capturedArgs.includes('0:s:2'), 'uses subtitle-relative map index');
+});
+
+test('extractSrt still resolves when ffmpeg writes large stderr', async () => {
+  const bigErr = 'x'.repeat(200000); // exceeds a real OS pipe buffer
+  const out = await embedded.extractSrt({ mediaUrl: 'http://s/H/0', trackIndex: 0 },
+    { spawnFn: fakeSpawn({ stdout: 'SRT', stderr: bigErr, code: 0 }), ffmpegPath: 'ffmpeg' });
+  assert.strictEqual(out.toString('utf8'), 'SRT');
+});
+
+test('extractSrt rejects on non-zero exit even with non-empty stdout', async () => {
+  await assert.rejects(
+    embedded.extractSrt({ mediaUrl: 'http://s/H/0', trackIndex: 0 },
+      { spawnFn: fakeSpawn({ stdout: 'partial', code: 3 }), ffmpegPath: 'ffmpeg' }),
+    /exit=3/
+  );
 });
