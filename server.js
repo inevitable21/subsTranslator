@@ -35,21 +35,48 @@ function createApp(deps = {}) {
   const cacheImpl = deps.cache || cache;
   const srtImpl = deps.srt || srt;
   const publicBase = deps.publicBase || `http://${cfg.host}:${cfg.port}`;
+  const embeddedImpl = deps.embedded || require('./embedded');
 
   const app = express();
   app.use(cors);
 
+  async function buildTranslatedSrt(source, stats) {
+    const cues = srtImpl.parse(source.bytes);
+    const translated = await translateCues(cues, { targetLang: cfg.targetLangGoogle, stats });
+    const formatted = display.formatCues(translated);
+    const finalCues = cfg.targetIsRtl ? rtl.markCuesRtl(formatted) : formatted;
+    return srtImpl.serialize(finalCues);
+  }
+
   app.get('/manifest.json', (req, res) => res.json(buildManifest()));
 
-  app.get(/^\/subtitles\/(.+)\.json$/, (req, res) => {
+  app.get(/^\/subtitles\/(.+)\.json$/, async (req, res) => {
     logRequest(cfg, 'subtitles', req.params[0]);
     const segs = req.params[0].split('/');
     const type = segs[0];
     const id = segs[1];
     const extra = segs.slice(2).join('/');
     const extraPart = extra ? `/${extra}` : '';
-    const url = `${publicBase}/translate/${type}/${id}${extraPart}.srt`;
-    res.json({ subtitles: [{ id: 'substranslator-heb', url, lang: cfg.targetLangLabel }] });
+    const externalUrl = `${publicBase}/translate/${type}/${id}${extraPart}.srt`;
+
+    const { videoSize, filename } = embeddedImpl.parseExtra(extra);
+    let detected = null;
+    if (videoSize) {
+      try { detected = await embeddedImpl.detectEmbeddedEnglish({ videoSize, filename }); }
+      catch { detected = null; }
+    }
+
+    if (detected) {
+      const embeddedUrl = `${publicBase}/translate-embedded/${type}/${id}${extraPart}.srt`;
+      return res.json({ subtitles: [
+        { id: 'substranslator-heb-embedded', url: embeddedUrl, lang: cfg.embeddedLabel },
+        { id: 'substranslator-heb-external', url: externalUrl, lang: cfg.embeddedExternalLabel },
+      ] });
+    }
+    // Not detected → single track, byte-identical to prior behavior.
+    return res.json({ subtitles: [
+      { id: 'substranslator-heb', url: externalUrl, lang: cfg.targetLangLabel },
+    ] });
   });
 
   app.get(/^\/translate\/(.+)\.srt$/, async (req, res) => {
@@ -66,12 +93,8 @@ function createApp(deps = {}) {
     try {
       const source = await getSource(type, id, extra);
       if (!source) return res.send('');
-      const cues = srtImpl.parse(source.bytes);
       const stats = {};
-      const translated = await translateCues(cues, { targetLang: cfg.targetLangGoogle, stats });
-      const formatted = display.formatCues(translated);
-      const finalCues = cfg.targetIsRtl ? rtl.markCuesRtl(formatted) : formatted;
-      const out = srtImpl.serialize(finalCues);
+      const out = await buildTranslatedSrt(source, stats);
       // Only cache a fully-translated result. If any chunk failed (e.g. a transient
       // rate-limit), serve best-effort but don't poison the cache with untranslated text.
       if (!stats.failedChunks) cacheImpl.put(key, out);

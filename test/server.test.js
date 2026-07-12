@@ -83,3 +83,52 @@ test('GET /translate returns empty body when no source found', async () => {
   assert.strictEqual(r.status, 200);
   assert.strictEqual(r.text, '');
 });
+
+test('GET /subtitles returns TWO tracks when embedded English is detected', async () => {
+  const app = createApp({
+    publicBase: 'http://127.0.0.1:7000',
+    embedded: {
+      parseExtra: () => ({ videoSize: 123, filename: 'a.mkv', videoHash: 'deadbeef' }),
+      detectEmbeddedEnglish: async () => ({ mediaUrl: 'http://s/H/0', trackIndex: 0 }),
+    },
+  });
+  const r = await req(app, '/subtitles/series/tt1:1:2/filename=a.mkv&videoSize=123&videoHash=deadbeef.json');
+  const body = JSON.parse(r.text);
+  assert.strictEqual(body.subtitles.length, 2);
+  assert.strictEqual(body.subtitles[0].id, 'substranslator-heb-embedded');
+  assert.strictEqual(body.subtitles[0].lang, 'Hebrew (from embedded)');
+  assert.match(body.subtitles[0].url, /\/translate-embedded\/series\/tt1:1:2\//);
+  assert.strictEqual(body.subtitles[1].id, 'substranslator-heb-external');
+  assert.strictEqual(body.subtitles[1].lang, 'Hebrew (from external)');
+  assert.match(body.subtitles[1].url, /\/translate\/series\/tt1:1:2\//);
+});
+
+test('GET /subtitles returns ONE original track when not detected', async () => {
+  const app = createApp({
+    publicBase: 'http://127.0.0.1:7000',
+    embedded: {
+      parseExtra: () => ({ videoSize: 123, filename: 'a.mkv', videoHash: 'deadbeef' }),
+      detectEmbeddedEnglish: async () => null,
+    },
+  });
+  const r = await req(app, '/subtitles/series/tt1:1:2/filename=a.mkv&videoSize=123.json');
+  const body = JSON.parse(r.text);
+  assert.strictEqual(body.subtitles.length, 1);
+  assert.strictEqual(body.subtitles[0].id, 'substranslator-heb');
+  assert.strictEqual(body.subtitles[0].lang, 'heb');
+});
+
+test('GET /subtitles skips embedded detection when videoSize absent', async () => {
+  let detectCalled = false;
+  const app = createApp({
+    publicBase: 'http://127.0.0.1:7000',
+    embedded: {
+      parseExtra: () => ({ videoSize: null, filename: null, videoHash: null }),
+      detectEmbeddedEnglish: async () => { detectCalled = true; return null; },
+    },
+  });
+  const r = await req(app, '/subtitles/movie/tt123.json');
+  const body = JSON.parse(r.text);
+  assert.strictEqual(body.subtitles.length, 1);
+  assert.strictEqual(detectCalled, false);
+});
