@@ -15,6 +15,7 @@ module.exports = {
   targetIsRtl: true,             // Hebrew is right-to-left; mark served lines RTL
   cacheVersion: 'v3',            // bump to invalidate cached output when format changes
   logRequests: true,             // append incoming subtitle requests to dataDir/requests.log
+  logEmbedded: process.env.SUBSTRANSLATOR_LOG_EMBEDDED !== '0', // embedded-detection diagnostics to dataDir/embedded.log (set =0 to disable)
   sourcePreference: ['eng', 'en', 'english'],
   dataDir,
   cacheDir: path.join(dataDir, 'cache'),

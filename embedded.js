@@ -34,19 +34,21 @@ async function findStream({ videoSize, filename }, deps = {}) {
   const fetchFn = deps.fetchFn || fetch;
   const base = deps.base || config.streamingServerBase;
   const timeoutMs = deps.statsTimeoutMs || 500;
+  const log = deps.log || (() => {});
   if (!videoSize) return null;
 
   let stats;
   try {
     const res = await fetchWithTimeout(fetchFn, `${base}/stats.json`, timeoutMs);
-    if (!res.ok) return null;
+    if (!res.ok) { log(`findStream: /stats.json HTTP ${res.status} at ${base}`); return null; }
     stats = await res.json();
-  } catch { return null; }
+  } catch { log(`findStream: streaming server unreachable at ${base} (is Stremio running?)`); return null; }
   if (!stats || typeof stats !== 'object') return null;
 
   const wantSize = Number(videoSize);
   const wantName = basename(filename);
   let sizeOnly = null;
+  const torrentCount = Object.keys(stats).length;
 
   for (const [key, entry] of Object.entries(stats)) {
     const infoHash = (entry && entry.infoHash) || key;
@@ -54,25 +56,31 @@ async function findStream({ videoSize, filename }, deps = {}) {
     for (let i = 0; i < files.length; i++) {
       if (Number(files[i].length) !== wantSize) continue;
       const hit = { infoHash, fileIdx: i, mediaUrl: `${base}/${infoHash}/${i}` };
-      if (wantName && basename(files[i].name) === wantName) return hit; // best match
+      if (wantName && basename(files[i].name) === wantName) {
+        log(`findStream: matched "${files[i].name}" -> ${hit.mediaUrl}`);
+        return hit; // best match
+      }
       if (!sizeOnly) sizeOnly = hit;
     }
   }
-  return sizeOnly;
+  if (sizeOnly) { log(`findStream: matched by size only -> ${sizeOnly.mediaUrl}`); return sizeOnly; }
+  log(`findStream: no active file matches videoSize=${wantSize} (${torrentCount} torrent(s) streaming) — debrid/HTTP stream or not torrent-backed`);
+  return null;
 }
 
 async function probeEnglishSub(mediaUrl, deps = {}) {
   const fetchFn = deps.fetchFn || fetch;
   const base = deps.base || config.streamingServerBase;
   const timeoutMs = deps.probeTimeoutMs || 1500;
+  const log = deps.log || (() => {});
 
   let probe;
   try {
     const url = `${base}/probe?url=${encodeURIComponent(mediaUrl)}`;
     const res = await fetchWithTimeout(fetchFn, url, timeoutMs);
-    if (!res.ok) return null;
+    if (!res.ok) { log(`probeEnglishSub: /probe HTTP ${res.status}`); return null; }
     probe = await res.json();
-  } catch { return null; }
+  } catch { log('probeEnglishSub: /probe request failed'); return null; }
 
   // Stremio server 4.x returns a FLAT streams[] array discriminated by codec_type;
   // older enginefs builds nested them under streams.subtitles. Support both, and
@@ -84,8 +92,13 @@ async function probeEnglishSub(mediaUrl, deps = {}) {
   } else if (streams && Array.isArray(streams.subtitles)) {
     subs = streams.subtitles;
   } else {
+    log('probeEnglishSub: probe response had no streams');
     return null;
   }
+
+  log(`probeEnglishSub: subtitle tracks = [${subs.map(s =>
+    `${String(s.codec_name || s.codec || '?')}/${String(s.lang || (s.tags && s.tags.language) || s.language || '?')}`
+  ).join(', ') || 'none'}]`);
 
   for (let rel = 0; rel < subs.length; rel++) {
     const s = subs[rel] || {};
@@ -95,9 +108,11 @@ async function probeEnglishSub(mediaUrl, deps = {}) {
     const lang = String(s.lang || tags.language || s.language || '').toLowerCase();
     const title = String(tags.title || s.title || '');
     if (lang === 'eng' || lang === 'en' || /english/i.test(title)) {
+      log(`probeEnglishSub: english TEXT track at s:${rel} (${codec})`);
       return { trackIndex: rel, codec };
     }
   }
+  log('probeEnglishSub: no english TEXT subtitle (image/PGS subs are skipped — cannot convert without OCR)');
   return null;
 }
 

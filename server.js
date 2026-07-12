@@ -20,6 +20,15 @@ function logRequest(cfg, kind, captured) {
   } catch { /* logging must never break a request */ }
 }
 
+function embLog(cfg, msg) {
+  if (!cfg.logEmbedded) return;
+  try {
+    fs.mkdirSync(cfg.dataDir, { recursive: true });
+    fs.appendFileSync(path.join(cfg.dataDir, 'embedded.log'),
+      `${new Date().toISOString()} ${msg}\n`);
+  } catch { /* logging must never break a request */ }
+}
+
 function cors(req, res, next) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -62,8 +71,11 @@ function createApp(deps = {}) {
     const { videoSize, filename } = embeddedImpl.parseExtra(extra);
     let detected = null;
     if (videoSize) {
-      try { detected = await embeddedImpl.detectEmbeddedEnglish({ videoSize, filename }); }
-      catch { detected = null; }
+      const log = cfg.logEmbedded
+        ? (m) => embLog(cfg, `[${filename || `${type}/${id}`}] ${m}`)
+        : undefined;
+      try { detected = await embeddedImpl.detectEmbeddedEnglish({ videoSize, filename }, { log }); }
+      catch (e) { if (log) log(`detect threw: ${e && e.message}`); detected = null; }
     }
 
     if (detected) {

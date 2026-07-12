@@ -157,6 +157,29 @@ test('probeEnglishSub still supports nested streams.subtitles (older server fall
   assert.deepStrictEqual(r, { trackIndex: 1, codec: 'subrip' });
 });
 
+test('findStream reports via deps.log when no file matches videoSize', async () => {
+  const stats = { H1: { files: [{ name: 'a.mkv', length: 999 }] } };
+  const logs = [];
+  const fetchFn = mockFetchJson({ '/stats.json': stats });
+  const r = await embedded.findStream({ videoSize: 123, filename: 'a.mkv' },
+    { fetchFn, base: 'http://s', log: (m) => logs.push(m) });
+  assert.strictEqual(r, null);
+  assert.ok(logs.some(m => /no active file matches/i.test(m)), 'should log the reason');
+});
+
+test('probeEnglishSub reports via deps.log why no english text track (PGS case)', async () => {
+  const probe = { streams: [
+    { codec_type: 'subtitle', codec_name: 'hdmv_pgs_subtitle', lang: 'eng' },
+  ] };
+  const logs = [];
+  const fetchFn = mockFetchJson({ '/probe': probe });
+  const r = await embedded.probeEnglishSub('http://s/H/0',
+    { fetchFn, base: 'http://s', log: (m) => logs.push(m) });
+  assert.strictEqual(r, null);
+  assert.ok(logs.some(m => /no english/i.test(m)), 'should log the reason');
+  assert.ok(logs.some(m => /hdmv_pgs_subtitle/i.test(m)), 'should list the tracks it saw');
+});
+
 test('extractSrt resolves with stdout buffer on exit 0', async () => {
   const srtText = '1\n00:00:01,000 --> 00:00:02,000\nHello';
   const out = await embedded.extractSrt({ mediaUrl: 'http://s/H/0', trackIndex: 1 },

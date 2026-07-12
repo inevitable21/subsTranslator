@@ -57,10 +57,22 @@ powershell -ExecutionPolicy Bypass -File scripts\uninstall-startup.ps1
   it to Hebrew, caches it under `%APPDATA%\subsTranslator\cache`, and streams SRT. Later
   requests are served from cache.
 
+## Troubleshooting: the "Hebrew (from embedded)" track doesn't appear
+
+The embedded track only shows when **all** of these hold: Stremio's streaming server is
+running, the file is **torrent-backed** (debrid/direct-HTTP streams aren't visible to the
+addon), and the file has an embedded English **text** subtitle (SRT/ASS/`mov_text`).
+Image subtitles (PGS/VobSub, common in BDRIPs) are skipped — they'd need OCR.
+
+Every detection attempt is logged to `%APPDATA%\subsTranslator\embedded.log`, which states
+exactly why a track was or wasn't offered (server unreachable, no size match, the subtitle
+codecs it found, or the English text track it selected). Disable with
+`SUBSTRANSLATOR_LOG_EMBEDDED=0`.
+
 ## Config
 
 Edit `config.js` (or set env vars): `SUBSTRANSLATOR_PORT`, `SUBSTRANSLATOR_HOST`,
-`SUBSTRANSLATOR_DATA`.
+`SUBSTRANSLATOR_DATA`, `SUBSTRANSLATOR_LOG_EMBEDDED`.
 
 ## Development
 
