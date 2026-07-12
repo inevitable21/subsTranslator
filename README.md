@@ -10,6 +10,8 @@ Stremio. No API keys, no accounts, no cost.
 - Windows with Node.js ≥ 24 installed (`node --version`).
 - The **Stremio desktop app** (recommended — the local `http://127.0.0.1` addon works
   cleanly there without browser mixed-content restrictions).
+- `npm install` downloads a bundled `ffmpeg` binary (`ffmpeg-static`, ~80 MB) used to
+  extract embedded subtitle tracks. No manual ffmpeg install is needed.
 
 ## Install
 
@@ -42,6 +44,12 @@ powershell -ExecutionPolicy Bypass -File scripts\uninstall-startup.ps1
 
 ## How it works
 
+- **Hebrew (from embedded):** when you play a **torrent-backed** file that contains an
+  embedded English subtitle track, a second Hebrew track appears, translated from that
+  embedded English. Because it is timed to the exact file you are watching, it usually
+  syncs better than the external source. It is extracted with a bundled `ffmpeg` binary
+  (`ffmpeg-static`) via Stremio's local streaming server. Direct-HTTP / debrid streams
+  don't pass through that server, so only the external Hebrew track is offered for them.
 - `GET /manifest.json` — declares a subtitles addon.
 - `GET /subtitles/{type}/{id}/{extra}.json` — returns one Hebrew track whose URL points
   back at this server's `/translate` route (instant; no translation yet).
