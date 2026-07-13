@@ -157,6 +157,39 @@ test('probeEnglishSub still supports nested streams.subtitles (older server fall
   assert.deepStrictEqual(r, { trackIndex: 1, codec: 'subrip' });
 });
 
+test('probeEnglish returns both text and image english tracks (flat streams[])', () => {
+  return (async () => {
+    const probe = { streams: [
+      { codec_type: 'subtitle', codec_name: 'hdmv_pgs_subtitle', lang: 'eng' }, // s:0 image
+      { codec_type: 'subtitle', codec_name: 'subrip', lang: 'eng' },            // s:1 text
+    ] };
+    const fetchFn = mockFetchJson({ '/probe': probe });
+    const r = await embedded.probeEnglish('http://s/H/0', { fetchFn, base: 'http://s' });
+    assert.deepStrictEqual(r.text, { trackIndex: 1, codec: 'subrip' });
+    assert.deepStrictEqual(r.image, { trackIndex: 0, codec: 'hdmv_pgs_subtitle' });
+  })();
+});
+
+test('probeEnglish returns image only for a PGS-only file (Wakfu case)', async () => {
+  const probe = { streams: [
+    { codec_type: 'subtitle', codec_name: 'hdmv_pgs_subtitle', lang: 'eng' },
+    { codec_type: 'subtitle', codec_name: 'hdmv_pgs_subtitle', lang: 'fre' },
+  ] };
+  const fetchFn = mockFetchJson({ '/probe': probe });
+  const r = await embedded.probeEnglish('http://s/H/0', { fetchFn, base: 'http://s' });
+  assert.strictEqual(r.text, null);
+  assert.deepStrictEqual(r.image, { trackIndex: 0, codec: 'hdmv_pgs_subtitle' });
+});
+
+test('probeEnglishSub still returns just the text track (delegates to probeEnglish)', async () => {
+  const probe = { streams: [
+    { codec_type: 'subtitle', codec_name: 'subrip', lang: 'eng' },
+  ] };
+  const fetchFn = mockFetchJson({ '/probe': probe });
+  const r = await embedded.probeEnglishSub('http://s/H/0', { fetchFn, base: 'http://s' });
+  assert.deepStrictEqual(r, { trackIndex: 0, codec: 'subrip' });
+});
+
 test('findStream reports via deps.log when no file matches videoSize', async () => {
   const stats = { H1: { files: [{ name: 'a.mkv', length: 999 }] } };
   const logs = [];
@@ -176,7 +209,7 @@ test('probeEnglishSub reports via deps.log why no english text track (PGS case)'
   const r = await embedded.probeEnglishSub('http://s/H/0',
     { fetchFn, base: 'http://s', log: (m) => logs.push(m) });
   assert.strictEqual(r, null);
-  assert.ok(logs.some(m => /no english/i.test(m)), 'should log the reason');
+  assert.ok(logs.some(m => /IMAGE track/i.test(m)), 'should log that only image track was found');
   assert.ok(logs.some(m => /hdmv_pgs_subtitle/i.test(m)), 'should list the tracks it saw');
 });
 

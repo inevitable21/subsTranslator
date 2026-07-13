@@ -3,6 +3,7 @@ const config = require('./config');
 const childProcess = require('node:child_process');
 
 const TEXT_SUB_CODECS = new Set(['subrip', 'srt', 'ass', 'ssa', 'mov_text', 'text', 'webvtt']);
+const IMAGE_SUB_CODECS = new Set(['hdmv_pgs_subtitle', 'pgssub', 'dvd_subtitle', 'dvdsub', 'vobsub']);
 
 function parseExtra(extra) {
   const s = String(extra || '');
@@ -68,23 +69,24 @@ async function findStream({ videoSize, filename }, deps = {}) {
   return null;
 }
 
-async function probeEnglishSub(mediaUrl, deps = {}) {
+async function probeEnglish(mediaUrl, deps = {}) {
   const fetchFn = deps.fetchFn || fetch;
   const base = deps.base || config.streamingServerBase;
   const timeoutMs = deps.probeTimeoutMs || 1500;
   const log = deps.log || (() => {});
+  const empty = { text: null, image: null };
 
   let probe;
   try {
     const url = `${base}/probe?url=${encodeURIComponent(mediaUrl)}`;
     const res = await fetchWithTimeout(fetchFn, url, timeoutMs);
-    if (!res.ok) { log(`probeEnglishSub: /probe HTTP ${res.status}`); return null; }
+    if (!res.ok) { log(`probeEnglish: /probe HTTP ${res.status}`); return empty; }
     probe = await res.json();
-  } catch { log('probeEnglishSub: /probe request failed'); return null; }
+  } catch { log('probeEnglish: /probe request failed'); return empty; }
 
-  // Stremio server 4.x returns a FLAT streams[] array discriminated by codec_type;
-  // older enginefs builds nested them under streams.subtitles. Support both, and
-  // preserve file order so the position is subtitle-relative for `-map 0:s:<n>`.
+  // Stremio server 4.x: flat streams[] discriminated by codec_type; older enginefs
+  // nested them under streams.subtitles. Support both; preserve file order so the
+  // position is subtitle-relative for `-map/-select_streams 0:s:<n>`.
   const streams = probe && probe.streams;
   let subs;
   if (Array.isArray(streams)) {
@@ -92,28 +94,34 @@ async function probeEnglishSub(mediaUrl, deps = {}) {
   } else if (streams && Array.isArray(streams.subtitles)) {
     subs = streams.subtitles;
   } else {
-    log('probeEnglishSub: probe response had no streams');
-    return null;
+    log('probeEnglish: probe response had no streams');
+    return empty;
   }
 
-  log(`probeEnglishSub: subtitle tracks = [${subs.map(s =>
+  log(`probeEnglish: subtitle tracks = [${subs.map(s =>
     `${String(s.codec_name || s.codec || '?')}/${String(s.lang || (s.tags && s.tags.language) || s.language || '?')}`
   ).join(', ') || 'none'}]`);
 
+  let text = null, image = null;
   for (let rel = 0; rel < subs.length; rel++) {
     const s = subs[rel] || {};
     const codec = String(s.codec_name || s.codec || '').toLowerCase();
-    if (!TEXT_SUB_CODECS.has(codec)) continue;
     const tags = s.tags || {};
     const lang = String(s.lang || tags.language || s.language || '').toLowerCase();
     const title = String(tags.title || s.title || '');
-    if (lang === 'eng' || lang === 'en' || /english/i.test(title)) {
-      log(`probeEnglishSub: english TEXT track at s:${rel} (${codec})`);
-      return { trackIndex: rel, codec };
-    }
+    const isEnglish = lang === 'eng' || lang === 'en' || /english/i.test(title);
+    if (!isEnglish) continue;
+    if (!text && TEXT_SUB_CODECS.has(codec)) text = { trackIndex: rel, codec };
+    if (!image && IMAGE_SUB_CODECS.has(codec)) image = { trackIndex: rel, codec };
   }
-  log('probeEnglishSub: no english TEXT subtitle (image/PGS subs are skipped — cannot convert without OCR)');
-  return null;
+  if (text) log(`probeEnglish: english TEXT track at s:${text.trackIndex} (${text.codec})`);
+  else if (image) log(`probeEnglish: english IMAGE track at s:${image.trackIndex} (${image.codec}) — timing-only`);
+  else log('probeEnglish: no english subtitle track');
+  return { text, image };
+}
+
+async function probeEnglishSub(mediaUrl, deps = {}) {
+  return (await probeEnglish(mediaUrl, deps)).text;
 }
 
 function extractSrt({ mediaUrl, trackIndex }, deps = {}) {
@@ -172,6 +180,6 @@ async function getEmbeddedSubtitle({ videoSize, filename }, deps = {}) {
 }
 
 module.exports = {
-  parseExtra, findStream, probeEnglishSub, extractSrt,
+  parseExtra, findStream, probeEnglish, probeEnglishSub, extractSrt,
   detectEmbeddedEnglish, getEmbeddedSubtitle,
 };
