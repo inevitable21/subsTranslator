@@ -62,3 +62,23 @@ test('computeLinearSync returns zero score for empty input', () => {
   const r = sync.computeLinearSync([], [1, 2, 3]);
   assert.strictEqual(r.score, 0);
 });
+
+test('applySync scales and offsets cue timings in ms, preserving text', () => {
+  const cues = [
+    { start: 1000, end: 2000, text: 'a' },
+    { start: 10000, end: 11000, text: 'b' },
+  ];
+  const out = sync.applySync(cues, { scale: 1, offset: 5 }); // +5s = +5000ms
+  assert.deepStrictEqual(out[0], { start: 6000, end: 7000, text: 'a' });
+  assert.deepStrictEqual(out[1], { start: 15000, end: 16000, text: 'b' });
+});
+
+test('applySync clamps negative start and drops fully-negative cues', () => {
+  const cues = [
+    { start: 1000, end: 2000, text: 'x' },   // shifted -3s → start -2000 end -1000 → dropped (end ≤ 0)
+    { start: 4000, end: 6000, text: 'y' },   // shifted -3s → start 1000 end 3000
+  ];
+  const out = sync.applySync(cues, { scale: 1, offset: -3 });
+  assert.strictEqual(out.length, 1);
+  assert.deepStrictEqual(out[0], { start: 1000, end: 3000, text: 'y' });
+});

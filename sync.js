@@ -98,7 +98,20 @@ function computeLinearSync(onsetsA, onsetsB, opts = {}) {
   return best;
 }
 
+function applySync(cues, { scale, offset }) {
+  const offMs = offset * 1000;
+  const out = [];
+  for (const c of cues) {
+    const start = Math.round(c.start * scale + offMs);
+    const end = Math.round(c.end * scale + offMs);
+    if (end <= 0) continue;
+    out.push({ ...c, start: Math.max(0, start), end });
+  }
+  return out;
+}
+
 module.exports = {
   _fft, _nextPow2, _crossCorrelate,
   computeLinearSync, BIN_SECONDS, MAX_OFFSET_SECONDS, FRAMERATE_RATIOS,
+  applySync,
 };
