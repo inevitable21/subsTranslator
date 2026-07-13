@@ -179,7 +179,26 @@ async function getEmbeddedSubtitle({ videoSize, filename }, deps = {}) {
   } catch { return null; }
 }
 
+function extractCueOnsets({ mediaUrl, trackIndex }, deps = {}) {
+  const execFileFn = deps.execFileFn || childProcess.execFile;
+  const ffprobePath = deps.ffprobePath || require('ffprobe-static').path;
+  const args = ['-v', 'error', '-select_streams', `s:${trackIndex}`,
+    '-show_entries', 'packet=pts_time', '-of', 'csv=p=0', mediaUrl];
+
+  return new Promise((resolve) => {
+    execFileFn(ffprobePath, args, { maxBuffer: 64 * 1024 * 1024, timeout: 60000 }, (err, stdout) => {
+      if (err) return resolve([]);
+      const onsets = String(stdout || '')
+        .split('\n')
+        .map(l => parseFloat(l.trim()))
+        .filter(v => Number.isFinite(v))
+        .sort((a, b) => a - b);
+      resolve(onsets);
+    });
+  });
+}
+
 module.exports = {
   parseExtra, findStream, probeEnglish, probeEnglishSub, extractSrt,
-  detectEmbeddedEnglish, getEmbeddedSubtitle,
+  detectEmbeddedEnglish, getEmbeddedSubtitle, extractCueOnsets,
 };

@@ -309,3 +309,29 @@ test('getEmbeddedSubtitle returns null when detection fails', async () => {
   });
   assert.strictEqual(r, null);
 });
+
+test('extractCueOnsets parses ffprobe pts_time CSV into sorted seconds', async () => {
+  let capturedArgs = null;
+  const execFileFn = (bin, args, opts, cb) => {
+    capturedArgs = args;
+    cb(null, '85.962000\n1390.348000\n120.500000\n', '');
+  };
+  const r = await embedded.extractCueOnsets({ mediaUrl: 'http://s/H/6', trackIndex: 0 },
+    { execFileFn, ffprobePath: 'ffprobe' });
+  assert.deepStrictEqual(r, [85.962, 120.5, 1390.348]);
+  assert.ok(capturedArgs.includes('s:0'), 'selects subtitle-relative stream');
+});
+
+test('extractCueOnsets returns [] on empty/garbage output', async () => {
+  const execFileFn = (bin, args, opts, cb) => cb(null, 'N/A\n\nnotanumber\n', '');
+  const r = await embedded.extractCueOnsets({ mediaUrl: 'http://s/H/6', trackIndex: 0 },
+    { execFileFn, ffprobePath: 'ffprobe' });
+  assert.deepStrictEqual(r, []);
+});
+
+test('extractCueOnsets returns [] when ffprobe errors', async () => {
+  const execFileFn = (bin, args, opts, cb) => cb(new Error('spawn failed'), '', 'boom');
+  const r = await embedded.extractCueOnsets({ mediaUrl: 'http://s/H/6', trackIndex: 0 },
+    { execFileFn, ffprobePath: 'ffprobe' });
+  assert.deepStrictEqual(r, []);
+});
