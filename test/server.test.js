@@ -232,6 +232,34 @@ test('GET /translate-embedded returns empty when embedded and external both fail
   assert.strictEqual(r.text, '');
 });
 
+test('GET /translate-embedded image-sync path applies transform, translates, caches', async () => {
+  const store = {};
+  const app = createApp({
+    config: quietConfig,
+    embedded: {
+      parseExtra: () => ({ videoSize: 9, filename: 'a.mkv', videoHash: 'h3' }),
+      getEmbeddedSubtitle: async () => null,                 // no text track
+      detectEmbeddedEnglish: async () => null,
+      findStream: async () => ({ mediaUrl: 'http://s/H/6' }),
+      probeEnglish: async () => ({ text: null, image: { trackIndex: 0, codec: 'hdmv_pgs_subtitle' } }),
+      extractCueOnsets: async () => [10, 13, 16, 19],
+    },
+    getSource: async () => ({ bytes: Buffer.from('1\n00:00:10,000 --> 00:00:12,000\nHello', 'utf8'), lang: 'eng' }),
+    translateCues: async (cues) => cues.map(c => ({ ...c, text: 'שלום' })),
+    sync: {
+      computeLinearSync: () => ({ scale: 1, offset: 5, score: 0.9 }),
+      applySync: (cues, t) => cues.map(c => ({ ...c, start: c.start + t.offset * 1000, end: c.end + t.offset * 1000 })),
+    },
+    cache: { get: (k) => (k in store ? store[k] : null), put: (k, v) => { store[k] = v; } },
+  });
+  const r = await req(app, '/translate-embedded/series/tt1:1:7/filename=a.mkv&videoHash=h3&videoSize=9.srt');
+  assert.strictEqual(r.status, 200);
+  assert.match(r.text, /שלום/);
+  assert.match(r.text, /00:00:15,000/); // 10s cue shifted +5s
+  assert.strictEqual(Object.keys(store).length, 1);
+  assert.match(Object.keys(store)[0], /:emb:h3:series:tt1:1:7$/);
+});
+
 test('GET /translate-embedded does NOT cache when translation reports failures', async () => {
   const store = {};
   const app = createApp({

@@ -52,12 +52,15 @@ function createApp(deps = {}) {
   const app = express();
   app.use(cors);
 
-  async function buildTranslatedSrt(source, stats) {
-    const cues = srtImpl.parse(source.bytes);
+  async function translateCuesToSrt(cues, stats) {
     const translated = await translateCues(cues, { targetLang: cfg.targetLangGoogle, stats });
     const formatted = display.formatCues(translated);
     const finalCues = cfg.targetIsRtl ? rtl.markCuesRtl(formatted) : formatted;
     return srtImpl.serialize(finalCues);
+  }
+
+  async function buildTranslatedSrt(source, stats) {
+    return translateCuesToSrt(srtImpl.parse(source.bytes), stats);
   }
 
   // Resolve the image-subtitle → external-text sync for a file. Cached per videoHash
@@ -172,6 +175,23 @@ function createApp(deps = {}) {
         if (!stats.failedChunks) cacheImpl.put(key, out);
         return res.send(out);
       }
+      // No embedded text track → try image→external-text sync (cached from detection).
+      const log = cfg.logEmbedded
+        ? (m) => embLog(cfg, `[${filename || `${type}/${id}`}] ${m}`)
+        : undefined;
+      let imageResult = null;
+      try { imageResult = await resolveImageSync({ type, id, extra, videoSize, videoHash, filename }, log); }
+      catch (e) { if (log) log(`image-sync resolve threw: ${e && e.message}`); }
+      if (imageResult && imageResult.mode === 'image-sync') {
+        const ext = await getSource(type, id, extra || null);
+        if (!ext) return res.send('');
+        const synced = syncImpl.applySync(srtImpl.parse(ext.bytes), imageResult.transform);
+        const stats = {};
+        const out = await translateCuesToSrt(synced, stats);
+        if (!stats.failedChunks) cacheImpl.put(key, out);
+        return res.send(out);
+      }
+
       // Embedded unavailable → fall back to external translation.
       // Best-effort; do NOT write the embedded cache key so replay retries embedded.
       const ext = await getSource(type, id, extra || null);
