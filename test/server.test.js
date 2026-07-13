@@ -280,3 +280,30 @@ test('GET /translate-embedded does NOT cache when translation reports failures',
   assert.strictEqual(r.status, 200);
   assert.strictEqual(Object.keys(store).length, 0);
 });
+
+test('syncCache: /translate-embedded after /subtitles reuses the cached verdict (no re-probe)', async () => {
+  let findStreamCalls = 0, onsetCalls = 0;
+  const store = {};
+  const app = createApp({
+    config: quietConfig,
+    publicBase: 'http://127.0.0.1:7000',
+    embedded: {
+      parseExtra: () => ({ videoSize: 9, filename: 'a.mkv', videoHash: 'hcache' }),
+      detectEmbeddedEnglish: async () => null,
+      getEmbeddedSubtitle: async () => null,
+      findStream: async () => { findStreamCalls++; return { mediaUrl: 'http://s/H/6' }; },
+      probeEnglish: async () => ({ text: null, image: { trackIndex: 0, codec: 'hdmv_pgs_subtitle' } }),
+      extractCueOnsets: async () => { onsetCalls++; return [10, 13, 16, 19]; },
+    },
+    getSource: async () => ({ bytes: Buffer.from('1\n00:00:10,000 --> 00:00:12,000\nHi', 'utf8'), lang: 'eng' }),
+    translateCues: async (cues) => cues.map(c => ({ ...c, text: 'שלום' })),
+    sync: { computeLinearSync: () => ({ scale: 1, offset: 0, score: 0.9 }), applySync: (cues) => cues },
+    cache: { get: (k) => (k in store ? store[k] : null), put: (k, v) => { store[k] = v; } },
+  });
+  const r1 = await req(app, '/subtitles/series/tt1:1:7/filename=a.mkv&videoSize=9&videoHash=hcache.json');
+  assert.strictEqual(JSON.parse(r1.text).subtitles.length, 2);
+  const r2 = await req(app, '/translate-embedded/series/tt1:1:7/filename=a.mkv&videoHash=hcache&videoSize=9.srt');
+  assert.match(r2.text, /שלום/);
+  assert.strictEqual(findStreamCalls, 1); // resolved once at /subtitles; /translate-embedded hits the cache
+  assert.strictEqual(onsetCalls, 1);
+});

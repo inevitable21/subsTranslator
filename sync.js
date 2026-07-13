@@ -91,7 +91,7 @@ function computeLinearSync(onsetsA, onsetsB, opts = {}) {
     const norm = Math.sqrt(onsetsA.length * energyB) || 1;
     for (let lag = -maxLagBins; lag <= maxLagBins; lag++) {
       const idx = lag >= 0 ? lag : n + lag;
-      const v = corr[idx] / norm;
+      const v = Math.min(1, corr[idx] / norm);
       if (v > best.score) best = { scale: r, offset: lag * binSeconds, score: v };
     }
   }

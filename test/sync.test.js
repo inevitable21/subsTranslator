@@ -82,3 +82,9 @@ test('applySync clamps negative start and drops fully-negative cues', () => {
   assert.strictEqual(out.length, 1);
   assert.deepStrictEqual(out[0], { start: 1000, end: 3000, text: 'y' });
 });
+
+test('applySync clamps a negative start to 0 while keeping a positive end', () => {
+  const cues = [{ start: 1000, end: 5000, text: 'z' }]; // -3s → start -2000 (clamp 0), end 2000
+  const out = sync.applySync(cues, { scale: 1, offset: -3 });
+  assert.deepStrictEqual(out, [{ start: 0, end: 2000, text: 'z' }]);
+});

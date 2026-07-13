@@ -131,6 +131,7 @@ function extractSrt({ mediaUrl, trackIndex }, deps = {}) {
     '-c:s', 'srt', '-f', 'srt', 'pipe:1'];
 
   return new Promise((resolve, reject) => {
+    if (!/^https?:\/\//i.test(String(mediaUrl))) return reject(new Error('invalid media url'));
     let child;
     try { child = spawnFn(ffmpegPath, args); }
     catch (e) { return reject(e); }
@@ -180,21 +181,24 @@ async function getEmbeddedSubtitle({ videoSize, filename }, deps = {}) {
 }
 
 function extractCueOnsets({ mediaUrl, trackIndex }, deps = {}) {
+  if (!/^https?:\/\//i.test(String(mediaUrl))) return Promise.resolve([]);
   const execFileFn = deps.execFileFn || childProcess.execFile;
   const ffprobePath = deps.ffprobePath || require('ffprobe-static').path;
   const args = ['-v', 'error', '-select_streams', `s:${trackIndex}`,
     '-show_entries', 'packet=pts_time', '-of', 'csv=p=0', mediaUrl];
 
   return new Promise((resolve) => {
-    execFileFn(ffprobePath, args, { maxBuffer: 64 * 1024 * 1024, timeout: 60000 }, (err, stdout) => {
-      if (err) return resolve([]);
-      const onsets = String(stdout || '')
-        .split('\n')
-        .map(l => parseFloat(l.trim()))
-        .filter(v => Number.isFinite(v))
-        .sort((a, b) => a - b);
-      resolve(onsets);
-    });
+    try {
+      execFileFn(ffprobePath, args, { maxBuffer: 64 * 1024 * 1024, timeout: 60000 }, (err, stdout) => {
+        if (err) return resolve([]);
+        const onsets = String(stdout || '')
+          .split('\n')
+          .map(l => parseFloat(l.trim()))
+          .filter(v => Number.isFinite(v))
+          .sort((a, b) => a - b);
+        resolve(onsets);
+      });
+    } catch { resolve([]); }
   });
 }
 
