@@ -3,6 +3,8 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const { createApp } = require('../server');
 
+const quietConfig = { ...require('../config'), logRequests: false, logEmbedded: false };
+
 async function req(app, pathname, method = 'GET') {
   const server = app.listen(0);
   await new Promise(r => server.once('listening', r));
@@ -109,6 +111,7 @@ test('GET /subtitles returns ONE original track when not detected', async () => 
     embedded: {
       parseExtra: () => ({ videoSize: 123, filename: 'a.mkv', videoHash: 'deadbeef' }),
       detectEmbeddedEnglish: async () => null,
+      findStream: async () => null,
     },
   });
   const r = await req(app, '/subtitles/series/tt1:1:2/filename=a.mkv&videoSize=123.json');
@@ -116,6 +119,46 @@ test('GET /subtitles returns ONE original track when not detected', async () => 
   assert.strictEqual(body.subtitles.length, 1);
   assert.strictEqual(body.subtitles[0].id, 'substranslator-heb');
   assert.strictEqual(body.subtitles[0].lang, 'heb');
+});
+
+test('GET /subtitles offers embedded for an image English track when sync is confident', async () => {
+  const app = createApp({
+    config: quietConfig,
+    publicBase: 'http://127.0.0.1:7000',
+    embedded: {
+      parseExtra: () => ({ videoSize: 9, filename: 'a.mkv', videoHash: 'h1' }),
+      detectEmbeddedEnglish: async () => null,               // no text track
+      findStream: async () => ({ mediaUrl: 'http://s/H/6' }),
+      probeEnglish: async () => ({ text: null, image: { trackIndex: 0, codec: 'hdmv_pgs_subtitle' } }),
+      extractCueOnsets: async () => [10, 13, 16, 19],
+    },
+    getSource: async () => ({ bytes: Buffer.from('1\n00:00:10,000 --> 00:00:12,000\nhi', 'utf8'), lang: 'eng' }),
+    sync: { computeLinearSync: () => ({ scale: 1, offset: 0, score: 0.9 }) },
+  });
+  const r = await req(app, '/subtitles/series/tt1:1:7/filename=a.mkv&videoSize=9&videoHash=h1.json');
+  const body = JSON.parse(r.text);
+  assert.strictEqual(body.subtitles.length, 2);
+  assert.strictEqual(body.subtitles[0].id, 'substranslator-heb-embedded');
+});
+
+test('GET /subtitles does NOT offer embedded for image track when sync score is low', async () => {
+  const app = createApp({
+    config: quietConfig,
+    publicBase: 'http://127.0.0.1:7000',
+    embedded: {
+      parseExtra: () => ({ videoSize: 9, filename: 'a.mkv', videoHash: 'h2' }),
+      detectEmbeddedEnglish: async () => null,
+      findStream: async () => ({ mediaUrl: 'http://s/H/6' }),
+      probeEnglish: async () => ({ text: null, image: { trackIndex: 0, codec: 'hdmv_pgs_subtitle' } }),
+      extractCueOnsets: async () => [10, 13, 16],
+    },
+    getSource: async () => ({ bytes: Buffer.from('1\n00:00:40,000 --> 00:00:42,000\nx', 'utf8'), lang: 'eng' }),
+    sync: { computeLinearSync: () => ({ scale: 1, offset: 0, score: 0.1 }) },
+  });
+  const r = await req(app, '/subtitles/series/tt1:1:7/filename=a.mkv&videoSize=9&videoHash=h2.json');
+  const body = JSON.parse(r.text);
+  assert.strictEqual(body.subtitles.length, 1);
+  assert.strictEqual(body.subtitles[0].id, 'substranslator-heb');
 });
 
 test('GET /subtitles skips embedded detection when videoSize absent', async () => {

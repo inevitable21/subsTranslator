@@ -10,6 +10,7 @@ const translate = require('./translate');
 const cache = require('./cache');
 const rtl = require('./rtl');
 const display = require('./display');
+const sync = require('./sync');
 
 function logRequest(cfg, kind, captured) {
   if (!cfg.logRequests) return;
@@ -45,6 +46,8 @@ function createApp(deps = {}) {
   const srtImpl = deps.srt || srt;
   const publicBase = deps.publicBase || `http://${cfg.host}:${cfg.port}`;
   const embeddedImpl = deps.embedded || require('./embedded');
+  const syncImpl = deps.sync || sync;
+  const syncCache = deps.syncCache || new Map(); // videoHash -> { mode:'image-sync', transform, score } | null
 
   const app = express();
   app.use(cors);
@@ -55,6 +58,33 @@ function createApp(deps = {}) {
     const formatted = display.formatCues(translated);
     const finalCues = cfg.targetIsRtl ? rtl.markCuesRtl(formatted) : formatted;
     return srtImpl.serialize(finalCues);
+  }
+
+  // Resolve the image-subtitle → external-text sync for a file. Cached per videoHash
+  // (the ffprobe scan + OpenSubtitles fetch are the expensive part). Returns a
+  // descriptor when a confident sync exists, else null. Only caches a real verdict.
+  async function resolveImageSync({ type, id, extra, videoSize, videoHash, filename }, log) {
+    if (videoHash && syncCache.has(videoHash)) return syncCache.get(videoHash);
+    const stream = await embeddedImpl.findStream({ videoSize, filename }, { log });
+    if (!stream) return null;
+    const { image, text } = await embeddedImpl.probeEnglish(stream.mediaUrl, { log });
+    if (text || !image) return null; // text handled elsewhere; nothing to sync
+    const onsetsB = await embeddedImpl.extractCueOnsets(
+      { mediaUrl: stream.mediaUrl, trackIndex: image.trackIndex }, { log });
+    const ext = await getSource(type, id, extra || null);
+    const onsetsA = ext ? srtImpl.parse(ext.bytes).map(c => c.start / 1000) : [];
+    if (!onsetsA.length || !onsetsB.length) {
+      if (log) log(`image-sync: insufficient onsets (A=${onsetsA.length} B=${onsetsB.length})`);
+      return null; // transient/edge — do not cache
+    }
+    const s = syncImpl.computeLinearSync(onsetsA, onsetsB);
+    if (log) log(`image-sync: A=${onsetsA.length} B=${onsetsB.length} scale=${s.scale.toFixed(4)} offset=${s.offset.toFixed(2)}s score=${s.score.toFixed(3)} min=${cfg.minSyncScore}`);
+    const result = s.score >= cfg.minSyncScore
+      ? { mode: 'image-sync', transform: { scale: s.scale, offset: s.offset }, score: s.score }
+      : null;
+    if (!result && log) log('image-sync: dropped (score below minSyncScore)');
+    if (videoHash) syncCache.set(videoHash, result); // cache the verdict (confident or dropped)
+    return result;
   }
 
   app.get('/manifest.json', (req, res) => res.json(buildManifest()));
@@ -76,6 +106,11 @@ function createApp(deps = {}) {
         : undefined;
       try { detected = await embeddedImpl.detectEmbeddedEnglish({ videoSize, filename }, { log }); }
       catch (e) { if (log) log(`detect threw: ${e && e.message}`); detected = null; }
+      if (!detected) {
+        const { videoHash } = embeddedImpl.parseExtra(extra);
+        try { detected = await resolveImageSync({ type, id, extra, videoSize, videoHash, filename }, log); }
+        catch (e) { if (log) log(`image-sync detect threw: ${e && e.message}`); }
+      }
     }
 
     if (detected) {
