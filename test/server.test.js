@@ -203,6 +203,7 @@ test('GET /translate-embedded falls back to external and does NOT cache emb key'
     embedded: {
       parseExtra: () => ({ videoSize: 9, filename: 'a.mkv', videoHash: 'beef' }),
       getEmbeddedSubtitle: async () => null, // embedded failed
+      findStream: async () => null,
     },
     getSource: async () => {
       externalCalled = true;
@@ -223,6 +224,7 @@ test('GET /translate-embedded returns empty when embedded and external both fail
     embedded: {
       parseExtra: () => ({ videoSize: 9, filename: 'a.mkv', videoHash: 'beef' }),
       getEmbeddedSubtitle: async () => null,
+      findStream: async () => null,
     },
     getSource: async () => null,
     cache: { get: () => null, put: () => {} },
