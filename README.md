@@ -50,6 +50,12 @@ powershell -ExecutionPolicy Bypass -File scripts\uninstall-startup.ps1
   syncs better than the external source. It is extracted with a bundled `ffmpeg` binary
   (`ffmpeg-static`) via Stremio's local streaming server. Direct-HTTP / debrid streams
   don't pass through that server, so only the external Hebrew track is offered for them.
+- **Image (PGS/VobSub) embedded English:** when the embedded English track is an image
+  subtitle (can't be read as text), the addon instead re-times the **OpenSubtitles**
+  English text to the embedded track's cue timings — a global offset + framerate fit,
+  computed from the image track's cue timestamps via `ffprobe` (no OCR) — and translates
+  that. If the two don't align confidently, the embedded track is withheld (external
+  Hebrew still shows). The confidence floor is tunable via `SUBSTRANSLATOR_MIN_SYNC_SCORE`.
 - `GET /manifest.json` — declares a subtitles addon.
 - `GET /subtitles/{type}/{id}/{extra}.json` — returns one Hebrew track whose URL points
   back at this server's `/translate` route (instant; no translation yet).
@@ -61,18 +67,21 @@ powershell -ExecutionPolicy Bypass -File scripts\uninstall-startup.ps1
 
 The embedded track only shows when **all** of these hold: Stremio's streaming server is
 running, the file is **torrent-backed** (debrid/direct-HTTP streams aren't visible to the
-addon), and the file has an embedded English **text** subtitle (SRT/ASS/`mov_text`).
-Image subtitles (PGS/VobSub, common in BDRIPs) are skipped — they'd need OCR.
+addon), and the file has an embedded English subtitle. **Text** subtitles (SRT/ASS/`mov_text`)
+are translated directly. **Image** subtitles (PGS/VobSub, common in BDRIPs) can't be read,
+so the addon re-times OpenSubtitles' English text to the image track's cue timings — but if
+that alignment isn't confident (below `SUBSTRANSLATOR_MIN_SYNC_SCORE`), the embedded track
+is withheld.
 
 Every detection attempt is logged to `%APPDATA%\subsTranslator\embedded.log`, which states
 exactly why a track was or wasn't offered (server unreachable, no size match, the subtitle
-codecs it found, or the English text track it selected). Disable with
-`SUBSTRANSLATOR_LOG_EMBEDDED=0`.
+codecs it found, the English text track it selected, or — for image tracks — the computed
+sync `scale`/`offset`/`score`). Disable with `SUBSTRANSLATOR_LOG_EMBEDDED=0`.
 
 ## Config
 
 Edit `config.js` (or set env vars): `SUBSTRANSLATOR_PORT`, `SUBSTRANSLATOR_HOST`,
-`SUBSTRANSLATOR_DATA`, `SUBSTRANSLATOR_LOG_EMBEDDED`.
+`SUBSTRANSLATOR_DATA`, `SUBSTRANSLATOR_LOG_EMBEDDED`, `SUBSTRANSLATOR_MIN_SYNC_SCORE`.
 
 ## Development
 
