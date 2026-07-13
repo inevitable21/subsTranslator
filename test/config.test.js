@@ -14,4 +14,5 @@ test('config has expected defaults', () => {
   assert.strictEqual(config.streamingServerBase, 'http://127.0.0.1:11470');
   assert.strictEqual(config.embeddedLabel, 'Hebrew (from embedded)');
   assert.strictEqual(config.embeddedExternalLabel, 'Hebrew (from external)');
+  assert.strictEqual(config.minSyncScore, 0.4);
 });
