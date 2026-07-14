@@ -11,4 +11,8 @@ test('config has expected defaults', () => {
   assert.ok(Array.isArray(config.sourcePreference) && config.sourcePreference.length > 0);
   assert.ok(typeof config.cacheDir === 'string' && config.cacheDir.length > 0);
   assert.strictEqual(config.opensubtitlesBase, 'https://opensubtitles-v3.strem.io');
+  assert.strictEqual(config.streamingServerBase, 'http://127.0.0.1:11470');
+  assert.strictEqual(config.embeddedLabel, 'Hebrew (from embedded)');
+  assert.strictEqual(config.embeddedExternalLabel, 'Hebrew (from external)');
+  assert.strictEqual(config.minSyncScore, 0.4);
 });
